@@ -1,1 +1,269 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAMEЯA - Weather Vision System</title>
+    <!-- Memuat Tailwind CSS untuk styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Memuat ikon Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+        }
+        .font-mono {
+            font-family: 'Roboto Mono', monospace;
+        }
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.6);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            animation: scan 15s linear infinite;
+            pointer-events: none;
+            opacity: 0.2;
+        }
+        @keyframes scan {
+            from { background-position: 0 0; }
+            to { background-position: 0 -100px; }
+        }
+        .log-entry {
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeIn 0.5s ease forwards;
+        }
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .text-glow {
+            text-shadow: 0 0 8px rgba(59, 130, 246, 0.7);
+        }
+    </style>
+</head>
+<body class="text-gray-200">
+
+    <div class="flex flex-col lg:flex-row min-h-screen">
+        <!-- Panel Kamera -->
+        <div class="w-full lg:w-2/3 h-screen bg-black flex items-center justify-center relative p-4">
+            <video id="cameraFeed" class="w-full h-full object-cover rounded-xl" autoplay playsinline muted></video>
+            <canvas id="frameCanvas" class="hidden"></canvas>
+            <div id="cameraStatus" class="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-80 z-10">
+                <i class="ph-camera-rotate text-6xl text-blue-500 mb-4 animate-spin"></i>
+                <h2 class="text-2xl font-semibold">Menginisialisasi Sensor Optik...</h2>
+                <p class="text-gray-400 mt-2">Mohon izinkan akses ke kamera Anda.</p>
+            </div>
+             <div class="scanlines"></div>
+        </div>
+
+        <!-- Panel Kontrol & Analisis -->
+        <div class="w-full lg:w-1/3 h-screen p-6 flex flex-col glass-panel">
+            <header class="text-center mb-6">
+                <h1 class="text-4xl font-bold text-glow">CAME<span class="text-blue-400">Я</span>A</h1>
+                <p class="text-blue-300 font-mono text-sm">Climate Analysis via Machine-Enabled Яeal-time Assessment</p>
+            </header>
+
+            <button id="analyzeButton" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-black transition duration-300 shadow-lg disabled:bg-gray-600 disabled:cursor-not-allowed">
+                Mulai Analisis Visual
+            </button>
+
+            <!-- Log Analisis -->
+            <div class="mt-6 flex-grow overflow-y-auto pr-2">
+                <h3 class="font-semibold text-lg mb-2">Log Analisis Sistem</h3>
+                <pre id="analysisLog" class="font-mono text-sm text-gray-400 bg-black/30 p-4 rounded-md h-48 overflow-y-scroll whitespace-pre-wrap"></pre>
+            </div>
+
+            <!-- Hasil -->
+            <div class="mt-6">
+                 <h3 class="font-semibold text-lg mb-2">Hasil Deteksi</h3>
+                 <div id="resultContainer" class="p-6 bg-black/30 rounded-lg min-h-[150px] flex items-center justify-center">
+                    <p class="text-gray-500">Hasil analisis akan muncul di sini.</p>
+                 </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Inisialisasi Elemen DOM ---
+        const video = document.getElementById('cameraFeed');
+        const canvas = document.getElementById('frameCanvas');
+        const cameraStatus = document.getElementById('cameraStatus');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const analysisLog = document.getElementById('analysisLog');
+        const resultContainer = document.getElementById('resultContainer');
+        
+        let isCameraReady = false;
+
+        // --- Fungsi Log ---
+        // Menambahkan entri ke log dengan efek animasi
+        const log = (message, delay = 0) => {
+            setTimeout(() => {
+                const timestamp = new Date().toLocaleTimeString('en-GB');
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `<span class="text-green-400">[${timestamp}]</span> ${message}`;
+                analysisLog.appendChild(entry);
+                analysisLog.scrollTop = analysisLog.scrollHeight;
+            }, delay);
+        };
+
+        // --- Inisialisasi Kamera ---
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' }, // Prioritaskan kamera belakang
+                    audio: false 
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    cameraStatus.style.display = 'none';
+                    isCameraReady = true;
+                    analyzeButton.disabled = false;
+                    log('Sensor optik berhasil diinisialisasi dan dikalibrasi.');
+                };
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                cameraStatus.innerHTML = `
+                    <i class="ph-warning-circle text-6xl text-red-500 mb-4"></i>
+                    <h2 class="text-2xl font-semibold">Akses Kamera Gagal</h2>
+                    <p class="text-gray-400 mt-2">${err.message}</p>
+                `;
+            }
+        }
+
+        // --- Proses Analisis (Simulasi & Logika Heuristik) ---
+        function startAnalysis() {
+            if (!isCameraReady) return;
+
+            // Reset UI
+            analyzeButton.disabled = true;
+            analyzeButton.textContent = 'Menganalisis...';
+            analysisLog.innerHTML = '';
+            resultContainer.innerHTML = '<p class="text-gray-500">Memproses data visual...</p>';
+            
+            // Rangkaian proses analisis yang disimulasikan
+            log('Memulai sekuens analisis...', 0);
+            log('Mengunci frame buffer dari sensor optik...', 500);
+            log('Memproses frame ke memori Canvas 2D...', 1200);
+            log('Memulai analisis luminansi & spektrum warna...', 2000);
+            log('Menghitung rata-rata kecerahan piksel (Luma)...', 2800);
+            log('Menganalisis distribusi hue untuk deteksi langit...', 3500);
+            log('Menjalankan algoritma heuristik untuk kondisi cuaca...', 4500);
+            log('Mengkalibrasi estimasi termal berdasarkan kecerahan...', 5200);
+            log('<span class="text-yellow-400">Analisis selesai. Menampilkan hasil.</span>', 6000);
+
+            setTimeout(analyzeFrame, 6000);
+        }
+        
+        // --- Analisis Frame Aktual (Logika Inti yang Disederhanakan) ---
+        function analyzeFrame() {
+            // Menggambar frame dari video ke canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Mendapatkan data piksel
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let totalLuminance = 0;
+            let blueDominance = 0;
+
+            // Loop melalui piksel (dengan step untuk performa)
+            for (let i = 0; i < imageData.length; i += 4 * 10) { // Sample 1/10 piksel
+                const r = imageData[i];
+                const g = imageData[i + 1];
+                const b = imageData[i + 2];
+                // Menghitung luminansi (kecerahan)
+                totalLuminance += (0.299 * r + 0.587 * g + 0.114 * b);
+                // Cek dominasi warna biru (indikasi langit cerah)
+                if (b > r && b > g) {
+                    blueDominance++;
+                }
+            }
+
+            const avgLuminance = totalLuminance / (imageData.length / 40);
+            const blueRatio = blueDominance / (imageData.length / 40);
+
+            // --- Logika Penentuan Cuaca (Heuristik) ---
+            let weather = {};
+
+            if (avgLuminance > 160) {
+                weather = {
+                    condition: "Sangat Terik",
+                    icon: "ph-sun-fill",
+                    temp: [31, 35],
+                    color: "text-red-400"
+                };
+            } else if (avgLuminance > 120) {
+                weather = {
+                    condition: "Cerah",
+                    icon: "ph-sun",
+                    temp: [28, 32],
+                    color: "text-yellow-300"
+                };
+                 if (blueRatio > 0.3) weather.condition = "Langit Cerah";
+            } else if (avgLuminance > 80) {
+                weather = {
+                    condition: "Berawan",
+                    icon: "ph-cloud-sun",
+                    temp: [26, 29],
+                    color: "text-gray-300"
+                };
+            } else if (avgLuminance > 50) {
+                weather = {
+                    condition: "Mendung",
+                    icon: "ph-cloud",
+                    temp: [23, 27],
+                    color: "text-gray-400"
+                };
+            } else {
+                 weather = {
+                    condition: "Gelap / Malam Hari",
+                    icon: "ph-moon",
+                    temp: [21, 25],
+                    color: "text-indigo-300"
+                };
+            }
+
+            displayResult(weather);
+        }
+
+        // --- Menampilkan Hasil ---
+        function displayResult(weather) {
+            const estimatedTemp = Math.floor(Math.random() * (weather.temp[1] - weather.temp[0] + 1)) + weather.temp[0];
+            
+            resultContainer.innerHTML = `
+                <div class="flex items-center space-x-6">
+                    <i class="${weather.icon} ${weather.color} text-8xl"></i>
+                    <div>
+                        <p class="text-3xl font-bold ${weather.color}">${weather.condition}</p>
+                        <p class="text-lg text-gray-400">Perkiraan Suhu: <span class="font-semibold text-white">${estimatedTemp}°C</span></p>
+                    </div>
+                </div>
+            `;
+
+            analyzeButton.disabled = false;
+            analyzeButton.textContent = 'Mulai Analisis Visual';
+        }
+
+        // --- Event Listener ---
+        document.addEventListener('DOMContentLoaded', initCamera);
+        analyzeButton.addEventListener('click', startAnalysis);
+
+    </script>
+</body>
+</html>
 
